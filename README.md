@@ -21,7 +21,7 @@ RedisQT::registerQmlType();
 ```qml
 import io.eberlein.disqt 1.0
 
-redis {
+Redis {
     host: "127.0.0.1"
     port: 6379
 

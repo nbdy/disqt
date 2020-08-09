@@ -30,7 +30,7 @@ public:
     ~RedisQT() override {};
 
     static void registerQmlType(){
-        qmlRegisterType<RedisQT>("io.eberlein.disqt", 1, 0, "redis");
+        qmlRegisterType<RedisQT>("io.eberlein.disqt", 1, 0, "Redis");
     }
 
     Q_INVOKABLE void connect(){
