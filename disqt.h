@@ -29,7 +29,7 @@ public:
 
     ~RedisQT() override {};
 
-    static void registerQmlType(){
+    static void registerType(){
         qmlRegisterType<RedisQT>("io.eberlein.disqt", 1, 0, "Redis");
     }
 

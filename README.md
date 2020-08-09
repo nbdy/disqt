@@ -15,7 +15,7 @@ all other redis commands
 #include <disqt/disqt.h> // you could also directly include it in your project
 
 // register redisqt so it's usable from qml
-RedisQT::registerQmlType(); 
+RedisQT::registerType(); 
 ```
 ##### qml
 ```qml
