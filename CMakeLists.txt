@@ -13,7 +13,9 @@ add_library(disqt SHARED disqt.h)
 
 set_target_properties(disqt PROPERTIES PUBLIC_HEADER "disqt.h")
 
-target_link_libraries(disqt cpp_redis Qt5::Core Qt5::Qml)
+target_link_libraries(disqt
+        cpp_redis tacopie
+        Qt5::Core Qt5::Qml)
 
 install(TARGETS disqt
         LIBRARY DESTINATION lib
