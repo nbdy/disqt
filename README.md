@@ -25,6 +25,7 @@ Redis {
     host: "127.0.0.1"
     port: 6379
 
+    onIsReadyChanged: connectAsync()
     onClientConnected: console.log("client connected")
     onSubscriberConnected: console.log("subscriber connected")
     onSubscribed: console.log(channel)

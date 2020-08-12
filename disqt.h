@@ -12,19 +12,21 @@
 #include <QObject>
 #include <QtQml>
 
-
 // todo most other redis commands
+// todo function to easily spawn threads by just passing the functions as a parameter
+
+
 class RedisQT : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString host READ getHost WRITE setHost NOTIFY hostChanged)
     Q_PROPERTY(int port READ getPort WRITE setPort NOTIFY portChanged)
     Q_PROPERTY(bool clientIsConnected READ getClientIsConnected NOTIFY clientIsConnectedChanged)
     Q_PROPERTY(bool subscriberIsConnected READ getSubscriberIsConnected NOTIFY subscriberIsConnectedChanged)
+    Q_PROPERTY(bool isReady READ getIsReady NOTIFY isReadyChanged)
 
 public:
     explicit RedisQT(QObject *parent = nullptr){
-        connect_client();
-        connect_subscriber();
+        setIsReady(true);
     };
 
     ~RedisQT() override {};
@@ -33,9 +35,19 @@ public:
         qmlRegisterType<RedisQT>("io.eberlein.disqt", 1, 0, "Redis");
     }
 
+    Q_INVOKABLE void connectAsync(){
+        std::thread t([&](){connect();});
+        t.detach();
+    }
+
     Q_INVOKABLE void connect(){
         connect_client();
         connect_subscriber();
+    }
+
+    Q_INVOKABLE void disconnectAsync(){
+        std::thread t([&](){disconnect();});
+        t.detach();
     }
 
     Q_INVOKABLE void disconnect(){
@@ -121,6 +133,8 @@ public:
     bool getClientIsConnected() const {return this->client.is_connected();}
     bool getSubscriberIsConnected() const {return this->subscriber.is_connected();}
 
+    bool getIsReady() const {return this->isReady;}
+
 signals:
     void hostChanged();
     void portChanged();
@@ -132,8 +146,15 @@ signals:
     void punsubscribed(const QString& channel);
     void clientIsConnectedChanged(bool value);
     void subscriberIsConnectedChanged(bool value);
+    void isReadyChanged();
 
 private:
+    void setIsReady(bool value){
+        this->isReady = value;
+        emit isReadyChanged();
+    }
+
+    bool isReady = false;
     cpp_redis::client client;
     cpp_redis::subscriber subscriber;
 
