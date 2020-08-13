@@ -80,6 +80,11 @@ public:
         client.commit();
     }
 
+    Q_INVOKABLE void setAsync(const QString& key, const QString& value) {
+        std::thread t([&](){set(key, value);});
+        t.detach();
+    }
+
     Q_INVOKABLE void getAsync(const QString& key){
         client.get(key.toStdString(), [&](cpp_redis::reply& r){
             getReturned(key, QString::fromStdString(r.as_string()));
@@ -150,6 +155,7 @@ signals:
 
 private:
     void setIsReady(bool value){
+        qDebug() << "DisQT is " << (!value ? "not" : "") << " ready.";
         this->isReady = value;
         emit isReadyChanged();
     }
