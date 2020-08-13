@@ -1,8 +1,8 @@
 #!/bin/bash
 
-if [ ! -d /usr/local/include/cpp_redis/ ]; then
+if [ ! -f /usr/local/lib/liberedis.so ]; then
   git submodule update --init
-  cd cpp_redis
+  cd eredis
   git submodule update --init
   mkdir build
   cd build

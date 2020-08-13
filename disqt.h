@@ -6,15 +6,14 @@
 #define DISQT_DISQT_H
 
 #include <future>
+#include <chrono>
 
 #include <cpp_redis/cpp_redis>
 
 #include <QObject>
 #include <QtQml>
 
-// todo most other redis commands
-// todo function to easily spawn threads by just passing the functions as a parameter
-
+// todo switch to hiredis
 
 class RedisQT : public QObject {
     Q_OBJECT
@@ -75,26 +74,30 @@ public:
         emit subscriberIsConnectedChanged(subscriber.is_connected());
     }
 
-    Q_INVOKABLE void set(const QString& key, const QString& value){
-        client.set(key.toStdString(), value.toStdString());
+    Q_INVOKABLE template<typename T> void set(const QString& key, T value){
+        QJsonDocument t;
+        QJsonObject o;
+        o.insert(key, value);
+        t.setObject(o);
+        client.set(key.toStdString(), t.toJson().toStdString());
         client.commit();
     }
 
-    Q_INVOKABLE void setAsync(const QString& key, const QString& value) {
+    Q_INVOKABLE template<typename T> void setAsync(const QString& key, T value) {
         std::thread t([&](){set(key, value);});
         t.detach();
     }
 
     Q_INVOKABLE void getAsync(const QString& key){
         client.get(key.toStdString(), [&](cpp_redis::reply& r){
-            getReturned(key, QString::fromStdString(r.as_string()));
+            getReturned(key, str2doc(r.as_string())[key]);
         });
     }
 
-    Q_INVOKABLE QString get(const QString& key){
+    Q_INVOKABLE QJsonValue get(const QString& key){
         std::future<cpp_redis::reply> r = client.get(key.toStdString());
-        r.wait();
-        return QString::fromStdString(r.get().as_string());
+        r.wait_for(std::chrono::milliseconds(420));
+        return str2doc(r.get().as_string())[key];
     }
 
     Q_INVOKABLE void subscribe(const QString& channel){
@@ -143,7 +146,7 @@ public:
 signals:
     void hostChanged();
     void portChanged();
-    void getReturned(const QString& key, const QString& reply);
+    void getReturned(const QString& key, const QJsonValue& value);
     void message(const QString& channel, const QString& message);
     void subscribed(const QString& channel);
     void unsubscribed(const QString& channel);
@@ -154,6 +157,10 @@ signals:
     void isReadyChanged();
 
 private:
+    QJsonDocument str2doc(const std::string& data){
+        return QJsonDocument::fromBinaryData(QString::fromStdString(data).toUtf8());
+    }
+
     void setIsReady(bool value){
         qDebug() << "DisQT is " << (!value ? "not" : "") << " ready.";
         this->isReady = value;
