@@ -34,7 +34,7 @@ public:
      * create RedisQT instance
      * @param parent QObject
      */
-    explicit RedisQT(QObject *parent = nullptr){
+    explicit RedisQT(QObject *parent = nullptr): QObject(parent){
         setIsReady(true);
     };
 
@@ -89,6 +89,7 @@ public:
      */
     Q_INVOKABLE void connect_client(){
         client.connect(host.toStdString(), port);
+        qDebug() << "client should now be connected to" << host << ":" << port;
         emit clientIsConnectedChanged(client.is_connected());
     }
 
@@ -101,18 +102,19 @@ public:
     }
 
     /**
-     * disconnects the subscriber and emits subscriberIsConnectedChanged
-     */
-    Q_INVOKABLE void disconnect_subscriber(){
-        subscriber.disconnect();
-        emit subscriberIsConnectedChanged(subscriber.is_connected());
-    }
-
-    /**
      * connects the subscriber to host and port
      */
     Q_INVOKABLE void connect_subscriber(){
         subscriber.connect(host.toStdString(), port);
+        qDebug() << "subscriber should now be connected to" << host << ":" << port;
+        emit subscriberIsConnectedChanged(subscriber.is_connected());
+    }
+
+    /**
+     * disconnects the subscriber and emits subscriberIsConnectedChanged
+     */
+    Q_INVOKABLE void disconnect_subscriber(){
+        subscriber.disconnect();
         emit subscriberIsConnectedChanged(subscriber.is_connected());
     }
 
@@ -122,15 +124,13 @@ public:
      * @param key QString
      * @param value T
      */
-    Q_INVOKABLE template<typename T> void set(const QString& key, T value){
-        QJsonDocument t;
-        QJsonObject o;
-        QJsonValue v(value);
-        o.insert(key, v);
-        t.setObject(o);
-        qDebug() << "setting" << key << ":" << t.toJson();
-        client.set(key.toStdString(), t.toJson().toStdString());
-        client.commit();
+    Q_INVOKABLE template<typename T> void set(const std::string& key, const QJsonObject& o){
+        QJsonDocument t(o);
+        auto json = t.toJson().toStdString();
+        qDebug() << "setting" << QString::fromStdString(key) << ":" << t.toJson();
+        client.set(key, json);
+        client.publish(key, json);
+        client.sync_commit();
     }
 
     /**
@@ -142,6 +142,17 @@ public:
     Q_INVOKABLE template<typename T> void setAsync(const QString& key, T value) {
         std::thread t([&](){set(key, value);});
         t.detach();
+    }
+
+    /**
+     * synchronously gets a value by its key
+     * @param key QString
+     * @return QJsonValue
+     */
+    Q_INVOKABLE QJsonValue get(const std::string& key) {
+        std::future<cpp_redis::reply> r = client.get(key);
+        client.sync_commit();
+        return str2doc(r.get().as_string())[QString::fromStdString(key)];
     }
 
     /**
@@ -162,19 +173,8 @@ public:
      */
     Q_INVOKABLE bool exists(const QString& key){
         auto f = client.exists({key.toStdString()});
-        f.wait();
+        client.sync_commit();
         return f.get().as_integer() == 1;
-    }
-
-    /**
-     * synchronously gets a value by its key
-     * @param key QString
-     * @return QJsonValue
-     */
-    Q_INVOKABLE QJsonValue get(const QString& key){
-        std::future<cpp_redis::reply> r = client.get(key.toStdString());
-        r.wait();
-        return str2doc(r.get().as_string())[key];
     }
 
     /**
@@ -217,6 +217,10 @@ public:
     Q_INVOKABLE void punsubscribe(const QString& channel){
         subscriber.punsubscribe(channel.toStdString()); subscriber.commit();
         punsubscribed(channel);
+    }
+
+    Q_INVOKABLE void publish(const QString& channel, QString message){
+        client.publish(channel.toStdString(), message.toStdString());
     }
 
     /**
@@ -274,6 +278,25 @@ public:
         return this->isReady;
     }
 
+    /**
+     * creates a QJsonDocument from a std::string
+     * @param data std::string
+     * @return QJsonDocument
+     */
+    QJsonDocument str2doc(const std::string& data){
+        return QJsonDocument::fromBinaryData(QString::fromStdString(data).toUtf8());
+    }
+
+    template<typename T> QJsonObject makeQJsonObject(const QString& key, T value){
+        QJsonObject o;
+        o.insert(key, QJsonValue(value));
+        return o;
+    }
+
+    template<typename T> QJsonObject mjo(const QString& key, T value){
+        return makeQJsonObject(key, value);
+    }
+
 signals:
     void hostChanged();
     void portChanged();
@@ -288,13 +311,12 @@ signals:
     void isReadyChanged();
 
 private:
-    /**
-     * creates a QJsonDocument from a std::string
-     * @param data std::string
-     * @return QJsonDocument
-     */
-    QJsonDocument str2doc(const std::string& data){
-        return QJsonDocument::fromBinaryData(QString::fromStdString(data).toUtf8());
+    template<typename R> std::future_status get_future_status(std::future<R> const& f, int wt=0){
+        return f.wait_for(std::chrono::seconds(wt));
+    }
+
+    template<typename R> bool is_future_ready(std::future<R> const& f){
+        return get_future_status(f) == std::future_status::ready;
     }
 
     /**
