@@ -19,7 +19,7 @@
  * Q_PROPERTY(int port READ getPort WRITE setPort NOTIFY portChanged)
  * Q_PROPERTY(bool clientIsConnected READ getClientIsConnected NOTIFY clientIsConnectedChanged)
  * Q_PROPERTY(bool subscriberIsConnected READ getSubscriberIsConnected NOTIFY subscriberIsConnectedChanged)
- * Q_PROPERTY(bool isReady READ getIsReady NOTIFY isReadyChanged)
+ * Q_PROPERTY(bool isReady READ getIsReady NOTIFY ready)
  */
 class RedisQT : public QObject {
     Q_OBJECT
@@ -27,16 +27,14 @@ class RedisQT : public QObject {
     Q_PROPERTY(int port READ getPort WRITE setPort NOTIFY portChanged)
     Q_PROPERTY(bool clientIsConnected READ getClientIsConnected NOTIFY clientIsConnectedChanged)
     Q_PROPERTY(bool subscriberIsConnected READ getSubscriberIsConnected NOTIFY subscriberIsConnectedChanged)
-    Q_PROPERTY(bool isReady READ getIsReady NOTIFY isReadyChanged)
+    Q_PROPERTY(bool isReady READ getIsReady NOTIFY ready)
 
 public:
     /**
      * create RedisQT instance
      * @param parent QObject
      */
-    explicit RedisQT(QObject *parent = nullptr): QObject(parent){
-        setIsReady(true);
-    };
+    explicit RedisQT(QObject *parent = nullptr): QObject(parent){};
 
     /**
      * destructor
@@ -65,6 +63,7 @@ public:
     Q_INVOKABLE void connect(){
         connect_client();
         connect_subscriber();
+        if(getIsConnected()) setIsReady(true);
     }
 
     /**
@@ -88,8 +87,12 @@ public:
      * connects the client to host and port
      */
     Q_INVOKABLE void connect_client(){
-        client.connect(host.toStdString(), port);
-        qDebug() << "client should now be connected to" << host << ":" << port;
+        try {
+            client.connect(host.toStdString(), port);
+            qDebug() << "client should now be connected to" << host << ":" << port;
+        } catch (...) {
+            qDebug() << "RedisQT client could not connect to " << host << ":" << port;
+        }
         emit clientIsConnectedChanged(client.is_connected());
     }
 
@@ -105,8 +108,12 @@ public:
      * connects the subscriber to host and port
      */
     Q_INVOKABLE void connect_subscriber(){
-        subscriber.connect(host.toStdString(), port);
-        qDebug() << "subscriber should now be connected to" << host << ":" << port;
+        try {
+            subscriber.connect(host.toStdString(), port);
+            qDebug() << "subscriber should now be connected to" << host << ":" << port;
+        } catch (...) {
+            qDebug() << "RedisQT subscriber could not connect to " << host << ":" << port;
+        }
         emit subscriberIsConnectedChanged(subscriber.is_connected());
     }
 
@@ -119,18 +126,18 @@ public:
     }
 
     /**
-     * set a value for a key
-     * @tparam T Anything that fits into a QJsonValue
+     * set a value for a key and publishes it to a channel named after the key
      * @param key QString
-     * @param value T
+     * @param value QJsonObject
+     * @return QJsonDocument created from key and value
      */
-    Q_INVOKABLE template<typename T> void set(const std::string& key, const QJsonObject& o){
+    Q_INVOKABLE QJsonDocument set(const std::string& key, const QJsonObject& o){
         QJsonDocument t(o);
-        auto json = t.toJson().toStdString();
-        qDebug() << "setting" << QString::fromStdString(key) << ":" << t.toJson();
-        client.set(key, json);
-        client.publish(key, json);
-        client.sync_commit();
+        if(clientConnected()) {
+            client.set(key, t.toJson().toStdString());
+            client.sync_commit();
+        }
+        return t;
     }
 
     /**
@@ -139,9 +146,8 @@ public:
      * @param key QString
      * @param value T
      */
-    Q_INVOKABLE template<typename T> void setAsync(const QString& key, T value) {
-        std::thread t([&](){set(key, value);});
-        t.detach();
+    Q_INVOKABLE void setAsync(const std::string& key, const QJsonObject o) {
+        std::thread([&](){set(key, o);}).detach();
     }
 
     /**
@@ -149,10 +155,13 @@ public:
      * @param key QString
      * @return QJsonValue
      */
-    Q_INVOKABLE QJsonValue get(const std::string& key) {
-        std::future<cpp_redis::reply> r = client.get(key);
-        client.sync_commit();
-        return str2doc(r.get().as_string())[QString::fromStdString(key)];
+    Q_INVOKABLE QJsonValue get(const std::string& key) const {
+        if(!const_cast<RedisQT*>(this)->clientConnected()) return QJsonValue();
+        std::future<cpp_redis::reply> r = const_cast<cpp_redis::client&>(client).get(key);
+        const_cast<cpp_redis::client&>(client).sync_commit();
+        auto j = r.get();
+        if(j.is_null()) return QJsonValue();
+        return str2doc(j.as_string())[QString::fromStdString(key)];
     }
 
     /**
@@ -172,6 +181,7 @@ public:
      * @return bool
      */
     Q_INVOKABLE bool exists(const QString& key){
+        if(!clientConnected()) return false;
         auto f = client.exists({key.toStdString()});
         client.sync_commit();
         return f.get().as_integer() == 1;
@@ -183,9 +193,11 @@ public:
      * @param channel QString
      */
     Q_INVOKABLE void subscribe(const QString& channel){
+        if(!subscriberConnected()) return;
         subscriber.subscribe(channel.toStdString(), [&](const std::string& channel, const std::string& msg){
             emit message(QString::fromStdString(channel), QString::fromStdString(msg));
-        }); subscriber.commit();
+        });
+        subscriber.commit();
         emit subscribed(channel);
     }
 
@@ -194,6 +206,7 @@ public:
      * @param channel QString
      */
     Q_INVOKABLE void unsubscribe(const QString& channel){
+        if(!subscriberConnected()) return;
         subscriber.unsubscribe(channel.toStdString()); subscriber.commit();
         emit unsubscribed(channel);
     }
@@ -204,6 +217,7 @@ public:
      * @param channel QString
      */
     Q_INVOKABLE void psubscribe(const QString& channel){
+        if(!subscriberConnected()) return;
         subscriber.psubscribe(channel.toStdString(), [&](const std::string& channel, const std::string& msg){
             emit message(QString::fromStdString(channel), QString::fromStdString(msg));
         }); subscriber.commit();
@@ -215,11 +229,14 @@ public:
      * @param channel QString
      */
     Q_INVOKABLE void punsubscribe(const QString& channel){
+        if(!subscriberConnected()) return;
         subscriber.punsubscribe(channel.toStdString()); subscriber.commit();
         punsubscribed(channel);
     }
 
-    Q_INVOKABLE void publish(const QString& channel, QString message){
+    Q_INVOKABLE void publish(const QString& channel, const QString& message){
+        if(!clientConnected()) return;
+        qDebug() << "publishing" << message << "to" << channel;
         client.publish(channel.toStdString(), message.toStdString());
     }
 
@@ -270,6 +287,10 @@ public:
         return this->subscriber.is_connected();
     }
 
+    bool getIsConnected() const {
+        return getClientIsConnected() && getSubscriberIsConnected();
+    }
+
     /**
      * returns if RedisQT is ready
      * @return bool
@@ -283,7 +304,7 @@ public:
      * @param data std::string
      * @return QJsonDocument
      */
-    QJsonDocument str2doc(const std::string& data){
+    static QJsonDocument str2doc(const std::string& data) {
         return QJsonDocument::fromBinaryData(QString::fromStdString(data).toUtf8());
     }
 
@@ -308,9 +329,23 @@ signals:
     void punsubscribed(const QString& channel);
     void clientIsConnectedChanged(bool value);
     void subscriberIsConnectedChanged(bool value);
-    void isReadyChanged();
+    void ready();
 
 private:
+    template<typename T> bool isConnected(T &c, const QString& msg){
+        bool r = c.is_connected();
+        if(!r) qDebug() << msg;
+        return r;
+    }
+
+    bool clientConnected(){
+        return isConnected(client, "RedisQT client is not connected");
+    }
+
+    bool subscriberConnected(){
+        return isConnected(client, "RedisQT subscriber is not connected");
+    }
+
     template<typename R> std::future_status get_future_status(std::future<R> const& f, int wt=0){
         return f.wait_for(std::chrono::seconds(wt));
     }
@@ -326,7 +361,7 @@ private:
     void setIsReady(bool value){
         qDebug() << "DisQT is" << (!value ? "not" : "") << "ready.";
         this->isReady = value;
-        emit isReadyChanged();
+        emit ready();
     }
 
     bool isReady = false;
