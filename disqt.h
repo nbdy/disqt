@@ -89,7 +89,6 @@ public:
     Q_INVOKABLE void connect_client(){
         try {
             client.connect(host.toStdString(), port);
-            qDebug() << "client should now be connected to" << host << ":" << port;
         } catch (...) {
             qDebug() << "RedisQT client could not connect to " << host << ":" << port;
         }
@@ -110,7 +109,6 @@ public:
     Q_INVOKABLE void connect_subscriber(){
         try {
             subscriber.connect(host.toStdString(), port);
-            qDebug() << "subscriber should now be connected to" << host << ":" << port;
         } catch (...) {
             qDebug() << "RedisQT subscriber could not connect to " << host << ":" << port;
         }
@@ -134,7 +132,7 @@ public:
     Q_INVOKABLE QJsonDocument set(const std::string& key, const QJsonObject& o){
         QJsonDocument t(o);
         if(clientConnected()) {
-            client.set(key, t.toJson().toStdString());
+            client.set(key, t.toJson(QJsonDocument::Compact).toStdString());
             client.sync_commit();
         }
         return t;
@@ -236,7 +234,6 @@ public:
 
     Q_INVOKABLE void publish(const QString& channel, const QString& message){
         if(!clientConnected()) return;
-        qDebug() << "publishing" << message << "to" << channel;
         client.publish(channel.toStdString(), message.toStdString());
     }
 
@@ -305,7 +302,7 @@ public:
      * @return QJsonDocument
      */
     static QJsonDocument str2doc(const std::string& data) {
-        return QJsonDocument::fromBinaryData(QString::fromStdString(data).toUtf8());
+        return QJsonDocument::fromJson(QString::fromStdString(data).toUtf8());
     }
 
     template<typename T> QJsonObject makeQJsonObject(const QString& key, T value){
@@ -359,7 +356,7 @@ private:
      * @param value bool
      */
     void setIsReady(bool value){
-        qDebug() << "DisQT is" << (!value ? "not" : "") << "ready.";
+        // qDebug() << "DisQT is" << (!value ? "not" : "") << "ready.";
         this->isReady = value;
         emit ready();
     }
