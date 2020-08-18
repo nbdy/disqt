@@ -153,13 +153,13 @@ public:
      * @param key QString
      * @return QJsonValue
      */
-    Q_INVOKABLE QJsonValue get(const std::string& key) const {
-        if(!const_cast<RedisQT*>(this)->clientConnected()) return QJsonValue();
+    Q_INVOKABLE QJsonDocument get(const std::string& key) const {
+        if(!clientConnected()) return QJsonDocument();
         std::future<cpp_redis::reply> r = const_cast<cpp_redis::client&>(client).get(key);
         const_cast<cpp_redis::client&>(client).sync_commit();
         auto j = r.get();
-        if(j.is_null()) return QJsonValue();
-        return str2doc(j.as_string())[QString::fromStdString(key)];
+        if(j.is_null()) return QJsonDocument();
+        return str2doc(j.as_string());
     }
 
     /**
@@ -178,10 +178,10 @@ public:
      * @param key QString
      * @return bool
      */
-    Q_INVOKABLE bool exists(const QString& key){
+    Q_INVOKABLE bool exists(const QString& key) const {
         if(!clientConnected()) return false;
-        auto f = client.exists({key.toStdString()});
-        client.sync_commit();
+        auto f = const_cast<cpp_redis::client&>(client).exists({key.toStdString()});
+        const_cast<cpp_redis::client&>(client).sync_commit();
         return f.get().as_integer() == 1;
     }
 
@@ -329,13 +329,13 @@ signals:
     void ready();
 
 private:
-    template<typename T> bool isConnected(T &c, const QString& msg){
+    template<typename T> bool isConnected(T &c, const QString& msg) const {
         bool r = c.is_connected();
         if(!r) qDebug() << msg;
         return r;
     }
 
-    bool clientConnected(){
+    bool clientConnected() const {
         return isConnected(client, "RedisQT client is not connected");
     }
 
@@ -358,7 +358,7 @@ private:
     void setIsReady(bool value){
         // qDebug() << "DisQT is" << (!value ? "not" : "") << "ready.";
         this->isReady = value;
-        emit ready();
+        if(value) emit ready();
     }
 
     bool isReady = false;
