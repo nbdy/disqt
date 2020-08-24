@@ -1,6 +1,7 @@
 ### disqt
 (dis cute)<br>
 a header-only qml interface for redis<br>
+#### [example](https://github.com/smthnspcl/rsettingsqt/blob/master/rsettingsqt.h)
 #### features
 - pub/sub
 - set/get
